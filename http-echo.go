@@ -46,6 +46,8 @@ func main() {
 	readFlags()
 	router := http.NewServeMux()
 	router.Handle("/", index())
+	router.Handle("/500", serverError())
+	router.Handle("/random", random())
 
 	server := &http.Server{
 		Addr:         listenAddr,
@@ -65,6 +67,36 @@ func index() http.Handler {
 		addJitter()
 		fmt.Printf("\n")
 		fmt.Fprintf(w, "OK\n")
+	})
+}
+
+func serverError() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestLogger(r)
+		addDelay()
+		addJitter()
+		http.Error(w, "500", http.StatusInternalServerError)
+	})
+}
+
+// 1 in 5 chance of a 200 or 400, 3 in 5 of a 500
+func random() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestLogger(r)
+		addDelay()
+		addJitter()
+
+		status := 500
+		rn := rand.Intn(5)
+		if rn == 0 {
+			status = 200
+		}
+		if rn == 1 {
+			status = 400
+		}
+
+		w.WriteHeader(int(status))
+		w.Write([]byte("Random"))
 	})
 }
 
