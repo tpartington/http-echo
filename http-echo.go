@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
 	"time"
 )
@@ -43,21 +42,8 @@ func readFlags() {
 
 }
 
-func ctrlC() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	go func() {
-		for sig := range c {
-			print("\033[0m")
-			fmt.Printf("%v\n", sig)
-			os.Exit(0)
-		}
-	}()
-}
-
 func main() {
 	readFlags()
-	ctrlC()
 	router := http.NewServeMux()
 	router.Handle("/", index())
 	router.Handle("/error", serverError())
@@ -210,4 +196,5 @@ func requestLogger(r *http.Request, colour string) {
 		fmt.Printf("%sBody: %s\n", colourEscape, body)
 	}
 
+	print("\033[0m")
 }
