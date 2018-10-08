@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"time"
 )
@@ -42,12 +43,27 @@ func readFlags() {
 
 }
 
+func ctrlC() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for sig := range c {
+			print("\033[0m")
+			fmt.Printf("%v\n", sig)
+			os.Exit(0)
+		}
+	}()
+}
+
 func main() {
 	readFlags()
+	ctrlC()
 	router := http.NewServeMux()
 	router.Handle("/", index())
-	router.Handle("/500", serverError())
+	router.Handle("/error", serverError())
 	router.Handle("/random", random())
+	router.Handle("/fail", randomServerFailure())
+	router.Handle("/sleep", randomServerFailureSleep())
 
 	server := &http.Server{
 		Addr:         listenAddr,
@@ -62,7 +78,7 @@ func main() {
 
 func index() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestLogger(r)
+		requestLogger(r, "")
 		addDelay()
 		addJitter()
 		fmt.Printf("\n")
@@ -72,7 +88,7 @@ func index() http.Handler {
 
 func serverError() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestLogger(r)
+		//	requestLogger(r)
 		addDelay()
 		addJitter()
 		http.Error(w, "500", http.StatusInternalServerError)
@@ -82,19 +98,66 @@ func serverError() http.Handler {
 // 1 in 5 chance of a 200 or 400, 3 in 5 of a 500
 func random() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestLogger(r)
 		addDelay()
 		addJitter()
 
 		status := 500
+		colour := "red"
 		rn := rand.Intn(5)
 		if rn == 0 {
 			status = 200
+			colour = "green"
 		}
 		if rn == 1 {
 			status = 400
+			colour = "blue"
 		}
 
+		requestLogger(r, colour)
+		w.WriteHeader(int(status))
+		w.Write([]byte("Random"))
+	})
+}
+
+func randomServerFailure() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		addDelay()
+		addJitter()
+
+		status := 500
+		colour := "red"
+		rn := rand.Intn(3)
+		if rn == 0 {
+			status = 200
+			colour = "green"
+		}
+
+		requestLogger(r, colour)
+		w.WriteHeader(int(status))
+		w.Write([]byte("Random"))
+	})
+}
+
+func randomServerFailureSleep() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		addDelay()
+		addJitter()
+
+		status := 500
+		colour := "red"
+		rn := rand.Intn(3)
+		if rn == 0 {
+			status = 200
+			colour = "green"
+
+		}
+		if rn == 1 {
+			time.Sleep(10 * time.Second)
+			colour = "blue"
+		}
+
+		requestLogger(r, colour)
 		w.WriteHeader(int(status))
 		w.Write([]byte("Random"))
 	})
@@ -122,15 +185,29 @@ func addJitter() {
 	}
 }
 
-func requestLogger(r *http.Request) {
+func requestLogger(r *http.Request, colour string) {
+
+	var colourEscape string
+
+	switch colour {
+	case "red":
+		colourEscape = "\033[31m"
+	case "green":
+		colourEscape = "\033[32m"
+	case "blue":
+		colourEscape = "\033[34m"
+	}
+
+	fmt.Printf("\n---------- %s ----------\n", time.Now().Local())
 
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(r.Body)
 	body := buf.String()
 
-	fmt.Printf("Method: %s, URI: %s, Proto: %s, Content-Length: %d\n", r.Method, r.RequestURI, r.Proto, r.ContentLength)
-	fmt.Printf("Headers: %s\n", r.Header)
+	fmt.Printf("%sMethod: %s, URI: %s, Proto: %s, Content-Length: %d\n", colourEscape, r.Method, r.RequestURI, r.Proto, r.ContentLength)
+	fmt.Printf("%sHeaders: %s\n", colourEscape, r.Header)
 	if printBody {
-		fmt.Printf("Body: %s\n", body)
+		fmt.Printf("%sBody: %s\n", colourEscape, body)
 	}
+
 }
