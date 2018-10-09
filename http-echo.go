@@ -21,6 +21,7 @@ var (
 	showHelp   bool
 	verbose    bool
 	printBody  bool
+	showColour bool
 )
 
 func readFlags() {
@@ -30,6 +31,7 @@ func readFlags() {
 	flag.Int64Var(&delay, "delay", 0, "the time to wait (in milliseconds) before sending a response")
 	flag.Int64Var(&jitter, "jitter", 0, "the amount of jitter (in milliseconds) to add to the response")
 	flag.BoolVar(&verbose, "v", false, "show more ouput")
+	flag.BoolVar(&showColour, "colour", true, "show coloured output")
 	flag.BoolVar(&printBody, "printBody", true, "print the HTTP request body")
 	flag.Parse()
 
@@ -47,7 +49,7 @@ func main() {
 	router := http.NewServeMux()
 	router.Handle("/", index())
 	router.Handle("/error", serverError())
-	router.Handle("/random", random())
+	router.Handle("/random", randomResponse())
 	router.Handle("/fail", randomServerFailure())
 	router.Handle("/sleep", randomServerFailureSleep())
 
@@ -64,7 +66,7 @@ func main() {
 
 func index() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestLogger(r, "")
+		requestLogger(r, "green")
 		addDelay()
 		addJitter()
 		fmt.Printf("\n")
@@ -82,7 +84,7 @@ func serverError() http.Handler {
 }
 
 // 1 in 5 chance of a 200 or 400, 3 in 5 of a 500
-func random() http.Handler {
+func randomResponse() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		addDelay()
 		addJitter()
@@ -175,13 +177,15 @@ func requestLogger(r *http.Request, colour string) {
 
 	var colourEscape string
 
-	switch colour {
-	case "red":
-		colourEscape = "\033[31m"
-	case "green":
-		colourEscape = "\033[32m"
-	case "blue":
-		colourEscape = "\033[34m"
+	if showColour {
+		switch colour {
+		case "red":
+			colourEscape = "\033[31m"
+		case "green":
+			colourEscape = "\033[32m"
+		case "blue":
+			colourEscape = "\033[34m"
+		}
 	}
 
 	fmt.Printf("\n---------- %s ----------\n", time.Now().Local())
