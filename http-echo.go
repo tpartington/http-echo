@@ -21,7 +21,7 @@ var (
 	httpAddr   string
 	listenAddr string
 	showHelp   bool
-	verbose    bool
+	debug      bool
 	printBody  bool
 	showColour bool
 )
@@ -32,7 +32,7 @@ func readFlags() {
 	flag.IntVar(&httpPort, "port", 8000, "the TCP port to listen on")
 	flag.IntVar(&delay, "delay", 0, "the time to wait (in milliseconds) before sending a response")
 	flag.IntVar(&maxJitter, "jitter", 0, "the maximum amount of jitter (in milliseconds) to add to the response")
-	flag.BoolVar(&verbose, "v", false, "show more ouput")
+	flag.BoolVar(&debug, "debug", false, "show debug ouput")
 	flag.BoolVar(&showColour, "colour", true, "show coloured output")
 	flag.BoolVar(&printBody, "printBody", true, "print the HTTP request body")
 	flag.Parse()
@@ -70,7 +70,7 @@ func main() {
 
 func addDelay(delay int) {
 	if delay != 0 {
-		if verbose {
+		if debug {
 			fmt.Printf("Adding %dms of delay", delay)
 		}
 		time.Sleep(time.Duration((delay)) * time.Millisecond)
@@ -82,7 +82,7 @@ func addJitter(maxJitter int) {
 		seed := rand.NewSource(time.Now().UnixNano())
 		random := rand.New(seed).Float64() * float64(maxJitter)
 		jitter := time.Duration(random) * time.Millisecond
-		if verbose {
+		if debug {
 			fmt.Printf("max-jitter=%vms, jitter=%vms\n", maxJitter, jitter)
 		}
 		time.Sleep(jitter)
@@ -111,8 +111,9 @@ func responseLogger(resp response) {
 	colour := colorCodes(resp.code)
 	fmt.Printf("\n---------- %s ----------\n", time.Now().Local())
 	fmt.Printf("%s< %d\n", colour, resp.code)
+	fmt.Printf("%s<", colour)
 	for k, v := range resp.headers {
-		fmt.Printf("%s> %s: %s ", colour, k, v)
+		fmt.Printf(" %s%s: %s,", colour, k, v)
 	}
 	fmt.Printf("\n")
 	if printBody {
@@ -159,7 +160,7 @@ func colorCodes(code int) string {
 		}
 	}
 
-	if verbose {
+	if debug {
 		fmt.Printf("showColour=%t, code=%d, colour=%s\n", showColour, code, friendly)
 	}
 
@@ -171,42 +172,31 @@ func index() http.Handler {
 
 		// default respond code
 		resp := response{
-			code: 200,
+			code:    200,
+			headers: make(map[string]string),
 		}
 
-		// default headers
-		headers := make(map[string]string)
-		headers["http"] = "echo"
-		resp.headers = headers
+		// set default headers
+		resp.headers["Server"] = "http-echo"
 
 		parseParams(req, &resp)
+		resp.body = http.StatusText(resp.code)
 
-		// set the response body
-		if resp.code >= 100 && resp.code < 199 {
-			resp.body = "Continue"
-		}
-		if resp.code >= 200 && resp.code < 299 {
-			resp.body = "OK"
-		}
-		if resp.code >= 300 && resp.code < 399 {
-			resp.body = "Redirect"
-		}
-		if resp.code >= 400 && resp.code < 499 {
-			resp.body = "Client Failure"
-		}
-		if resp.code >= 500 && resp.code < 599 {
-			resp.body = "Server Failure"
-		}
-
+		requestLogger(req)
 		addDelay(delay)
 		addJitter(maxJitter)
-		requestLogger(req)
 		responseLogger(resp)
 
-		w.WriteHeader(resp.code)
-		if rec := recover(); rec != nil {
-			fmt.Println("Recovered in f", rec)
+		// set any custom headers
+		for k, v := range resp.headers {
+			if debug {
+				fmt.Printf("Setting Header: %s=%s\n", k, v)
+			}
+			w.Header().Set(k, v)
 		}
+
+		// write the response
+		w.WriteHeader(resp.code)
 		w.Write([]byte(resp.body))
 
 	})
@@ -256,7 +246,7 @@ func parseParams(req *http.Request, resp *response) {
 	v = q.Get("code")
 	if v != "" {
 		if v == "random" {
-			*resp = randomiseResponseCode(resp, len(codes), codes)
+			*resp = randomiseResponseCode(resp, codes)
 		}
 		v, err := strconv.Atoi(v)
 		if err == nil {
@@ -264,14 +254,37 @@ func parseParams(req *http.Request, resp *response) {
 		}
 	}
 
+	v = q.Get("location")
+	if v != "" {
+		resp.headers["Location"] = v
+	}
+
+	v = q.Get("headers")
+	if v != "" {
+		// headers=key1,value1,key2,value2,key3,value3
+		// length=6
+		hs := strings.Split(v, ",")
+		if debug {
+			fmt.Printf("headers=%v\n", hs)
+		}
+		size := len(hs)
+		i := 0
+		for i <= (size - 1) {
+			resp.headers[hs[i]] = hs[i+1]
+			i = i + 2
+		}
+	}
+
 }
 
-//
-func randomiseResponseCode(resp *response, chance int, codes []int) response {
-	rn := rand.Intn(chance)
+func randomiseResponseCode(resp *response, codes []int) response {
+	rn := rand.Intn(len(codes))
 	i := rn % len(codes)
-
 	resp.code = codes[i]
+
+	if debug {
+		fmt.Printf("len=%d, rn=%d, i=%d, code=%d", len(codes), rn, i, resp.code)
+	}
 
 	return *resp
 }
