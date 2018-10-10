@@ -24,6 +24,7 @@ var (
 	debug      bool
 	printBody  bool
 	showColour bool
+	timestamp  bool
 )
 
 func readFlags() {
@@ -35,6 +36,7 @@ func readFlags() {
 	flag.BoolVar(&debug, "debug", false, "show debug ouput")
 	flag.BoolVar(&showColour, "colour", true, "show coloured output")
 	flag.BoolVar(&printBody, "printBody", true, "print the HTTP request body")
+	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
 	flag.Parse()
 
 	listenAddr = httpAddr + ":" + strconv.Itoa(httpPort)
@@ -95,7 +97,9 @@ func requestLogger(r *http.Request) {
 	buf.ReadFrom(r.Body)
 	body := buf.String()
 
-	fmt.Printf("\n---------- %s ----------\n", time.Now().Local())
+	if timestamp {
+		fmt.Printf("\n---------- Request: %s ----------\n", time.Now().Local())
+	}
 	fmt.Printf("> %s %s %s\n", r.Method, r.RequestURI, r.Proto)
 	for k, v := range r.Header {
 		fmt.Printf("> %s: %s ", k, v)
@@ -109,7 +113,9 @@ func requestLogger(r *http.Request) {
 func responseLogger(resp response) {
 
 	colour := colorCodes(resp.code)
-	fmt.Printf("\n---------- %s ----------\n", time.Now().Local())
+	if timestamp {
+		fmt.Printf("\n---------- Response: %s ----------\n", time.Now().Local())
+	}
 	fmt.Printf("%s< %d\n", colour, resp.code)
 	fmt.Printf("%s<", colour)
 	for k, v := range resp.headers {
