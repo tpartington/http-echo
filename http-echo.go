@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -15,16 +16,20 @@ import (
 )
 
 var (
-	delay      int
-	maxJitter  int
-	httpPort   int
-	httpAddr   string
-	listenAddr string
-	showHelp   bool
-	debug      bool
-	printBody  bool
-	showColour bool
-	timestamp  bool
+	delay         int
+	maxJitter     int
+	httpPort      int
+	httpAddr      string
+	listenAddr    string
+	showHelp      bool
+	debug         bool
+	printBody     bool
+	showColour    bool
+	timestamp     bool
+	printRequest  bool
+	printResponse bool
+	hijack        bool
+	empty         bool
 )
 
 func readFlags() {
@@ -37,6 +42,8 @@ func readFlags() {
 	flag.BoolVar(&showColour, "colour", true, "show coloured output")
 	flag.BoolVar(&printBody, "printBody", true, "print the HTTP request body")
 	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
+	flag.BoolVar(&printRequest, "printRequest", true, "print the request")
+	flag.BoolVar(&printResponse, "printResponse", true, "print the response")
 	flag.Parse()
 
 	listenAddr = httpAddr + ":" + strconv.Itoa(httpPort)
@@ -66,6 +73,7 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  15 * time.Second,
 	}
+
 	fmt.Printf("Listening on: %s\n\n", listenAddr)
 	log.Fatal(server.ListenAndServe())
 }
@@ -91,17 +99,21 @@ func addJitter(maxJitter int) {
 	}
 }
 
-func requestLogger(r *http.Request) {
+func requestLogger(req *http.Request) {
 
+	// read the request body
 	buf := new(bytes.Buffer)
-	buf.ReadFrom(r.Body)
+	buf.ReadFrom(req.Body)
 	body := buf.String()
+
+	// restore the body so we can read from it again later
+	req.Body = ioutil.NopCloser(bytes.NewBuffer([]byte(body)))
 
 	if timestamp {
 		fmt.Printf("\n---------- Request: %s ----------\n", time.Now().Local())
 	}
-	fmt.Printf("> %s %s %s\n", r.Method, r.RequestURI, r.Proto)
-	for k, v := range r.Header {
+	fmt.Printf("> %s %s %s\n", req.Method, req.RequestURI, req.Proto)
+	for k, v := range req.Header {
 		fmt.Printf("> %s: %s ", k, v)
 	}
 	fmt.Printf("\n")
@@ -188,10 +200,14 @@ func index() http.Handler {
 		parseParams(req, &resp)
 		resp.body = http.StatusText(resp.code)
 
-		requestLogger(req)
+		if printRequest {
+			requestLogger(req)
+		}
 		addDelay(delay)
 		addJitter(maxJitter)
-		responseLogger(resp)
+		if printResponse {
+			responseLogger(resp)
+		}
 
 		// set any custom headers
 		for k, v := range resp.headers {
@@ -199,6 +215,14 @@ func index() http.Handler {
 				fmt.Printf("Setting Header: %s=%s\n", k, v)
 			}
 			w.Header().Set(k, v)
+		}
+
+		if empty == true {
+			closeConnection(w)
+		}
+
+		if hijack == true {
+			hijackBody(req, w)
 		}
 
 		// write the response
@@ -220,6 +244,7 @@ func parseParams(req *http.Request, resp *response) {
 	}
 	q := u.Query()
 
+	// the delay to add the request
 	v := q.Get("delay")
 	if v != "" {
 		delay, err = strconv.Atoi(v)
@@ -228,6 +253,7 @@ func parseParams(req *http.Request, resp *response) {
 		}
 	}
 
+	// the maximum amount of jitter to add to a request
 	v = q.Get("jitter")
 	if v != "" {
 		maxJitter, err = strconv.Atoi(v)
@@ -236,6 +262,7 @@ func parseParams(req *http.Request, resp *response) {
 		}
 	}
 
+	// the response codes to use for a random response
 	v = q.Get("codes")
 	if v != "" {
 		codes = []int{}
@@ -249,6 +276,7 @@ func parseParams(req *http.Request, resp *response) {
 		}
 	}
 
+	// set the response code to the given int, or if random to a random value of codes
 	v = q.Get("code")
 	if v != "" {
 		if v == "random" {
@@ -260,15 +288,15 @@ func parseParams(req *http.Request, resp *response) {
 		}
 	}
 
+	// set the location header
 	v = q.Get("location")
 	if v != "" {
 		resp.headers["Location"] = v
 	}
 
+	// the key,value pairs of custom headers to set
 	v = q.Get("headers")
 	if v != "" {
-		// headers=key1,value1,key2,value2,key3,value3
-		// length=6
 		hs := strings.Split(v, ",")
 		if debug {
 			fmt.Printf("headers=%v\n", hs)
@@ -281,6 +309,52 @@ func parseParams(req *http.Request, resp *response) {
 		}
 	}
 
+	// if close = true shutdown the server
+	v = q.Get("empty")
+	if v == "true" {
+		empty = true
+	}
+
+	// if true hijack the
+	v = q.Get("hijack")
+	if v == "true" {
+		hijack = true
+	}
+
+}
+
+func closeConnection(w http.ResponseWriter) {
+	hj, _ := w.(http.Hijacker)
+	conn, _, err := hj.Hijack()
+	if err != nil {
+		fmt.Printf("error hijacking connection: %v\n", err)
+	}
+	conn.Close()
+}
+
+func hijackBody(req *http.Request, w http.ResponseWriter) {
+	reqBuf := new(bytes.Buffer)
+	reqBuf.ReadFrom(req.Body)
+	body := reqBuf.String()
+
+	hj, _ := w.(http.Hijacker)
+	conn, buf, err := hj.Hijack()
+	if err != nil {
+		fmt.Printf("error hijacking connection: %v\n", err)
+	}
+
+	bs := strings.Split(body, "\\n")
+	if len(bs) > 0 {
+		for _, b := range bs {
+			if debug {
+				fmt.Printf("%s\n", b)
+			}
+			buf.WriteString(b)
+			buf.WriteString("\n")
+		}
+	}
+	buf.Flush()
+	conn.Close()
 }
 
 func randomiseResponseCode(resp *response, codes []int) response {

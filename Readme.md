@@ -65,3 +65,9 @@ Use curl to connect to http-echo, 3/4 of the time http-echo will return a 200, 1
 ```shell
 curl --location 'http://localhost:8000/?code=random&codes=200,200,200,502'
 ```
+
+Use curl to connect to http-echo, http-echo will return a 200 with several custom headers set
+
+```shell
+curl 'http://localhost:8000/?headers=cache-control,private,content-length,500'
+```
