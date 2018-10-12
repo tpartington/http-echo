@@ -4,33 +4,39 @@ A small utility for echoing http requests and returning a customised response
 
 ## Usage
 
-```shell
+```plain
 Usage of http-echo:
   -address string
-    the TCP address to listen on (default "127.0.0.1")
+        the TCP address to listen on (default "127.0.0.1")
   -colour
-    show coloured output (default true)
+        show coloured output (default true)
   -debug
-    show debug ouput
+        show debug ouput
   -delay int
-    the time to wait (in milliseconds) before sending a response
+        the time to wait (in milliseconds) before sending a response
   -help
-    show this help menu
+        show this help menu
   -jitter int
-    the maximum amount of jitter (in milliseconds) to add to the response
+        the maximum amount of jitter (in milliseconds) to add to the response
   -port int
-    the TCP port to listen on (default 8000)
+        the TCP port to listen on (default 8000)
   -printBody
-    print the HTTP request body (default true)
+        print the HTTP request body (default true)
+  -printRequest
+        print the request (default true)
+  -printResponse
+        print the response (default true)
+  -shortBody int
+        the number of bytes to print of the request body start and end, 0 will print the whole body
   -timestamp
-    show the request/response timestamp (default true)
+        show the request/response timestamp (default true)
 ```
 
 ## Query Parameters
 
 The following query parameters are accepted:
 
-```shell
+```plain
   -headers
      comma separated of keys and value pairs
   -location
@@ -43,6 +49,10 @@ The following query parameters are accepted:
    the time to wait (in milliseconds) before sending a response, overrides the command line value if given
   -jitter
   the maximum amount of jitter (in milliseconds) to add to the response, overrides the command line value if given
+  -close
+  if 'true' close the connection immediately before sending a response
+  -hijack
+  if 'true' replay the request body as the response, use '\n' for a newline
 ```
 
 ## Examples
@@ -70,4 +80,15 @@ Use curl to connect to http-echo, http-echo will return a 200 with several custo
 
 ```shell
 curl 'http://localhost:8000/?headers=cache-control,private,content-length,500'
+```
+
+Use curl to connect to http-echo, http-echo will return the value of the post body, in this case
+
+```plain
+hello
+world
+```
+
+```shell
+curl -v -d "hello\nworld" 'localhost:8000/?hijack=true'
 ```
