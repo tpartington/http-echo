@@ -30,6 +30,7 @@ var (
 	printResponse bool
 	hijack        bool
 	empty         bool
+	shortBody     int
 )
 
 func readFlags() {
@@ -44,6 +45,7 @@ func readFlags() {
 	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
 	flag.BoolVar(&printRequest, "printRequest", true, "print the request")
 	flag.BoolVar(&printResponse, "printResponse", true, "print the response")
+	flag.IntVar(&shortBody, "shortBody", 0, "the number of bytes to print of the request body start and end, 0 will print the whole body")
 	flag.Parse()
 
 	listenAddr = httpAddr + ":" + strconv.Itoa(httpPort)
@@ -114,11 +116,19 @@ func requestLogger(req *http.Request) {
 	}
 	fmt.Printf("> %s %s %s\n", req.Method, req.RequestURI, req.Proto)
 	for k, v := range req.Header {
-		fmt.Printf("> %s: %s ", k, v)
+		fmt.Printf("> %s: %s\n", k, v)
 	}
 	fmt.Printf("\n")
 	if printBody {
-		fmt.Printf("> %s\n", body)
+		if shortBody < 1 || len(body) <= (shortBody*2) {
+			fmt.Printf("> %s\n", body)
+		} else {
+			bodyStart := body[0:shortBody]
+			bodyEnd := body[len(body)-shortBody:]
+			fmt.Printf("> %s\n", bodyStart)
+			fmt.Printf("...\n")
+			fmt.Printf("> %s\n", bodyEnd)
+		}
 	}
 }
 
