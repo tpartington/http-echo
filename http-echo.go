@@ -65,6 +65,10 @@ type response struct {
 
 func main() {
 	readFlags()
+	if !debug {
+		log.SetFlags(0)
+		log.SetOutput(ioutil.Discard)
+	}
 	router := http.NewServeMux()
 	router.Handle("/", index())
 
