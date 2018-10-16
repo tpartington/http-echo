@@ -171,20 +171,20 @@ func colorCodes(code int) string {
 			friendly = "cyan"
 		}
 		if code >= 200 && code <= 299 {
+			colourCode = "\033[34m"
+			friendly = "blue"
+		}
+		if code >= 300 && code <= 399 {
 			colourCode = "\033[32m"
 			friendly = "green"
 		}
-		if code >= 300 && code <= 399 {
+		if code >= 400 && code <= 417 {
 			colourCode = "\033[33m"
 			friendly = "yellow"
 		}
-		if code >= 400 && code <= 417 {
-			colourCode = "\033[34m"
-			friendly = "blue"
-		}
 		if code >= 419 && code <= 499 {
-			colourCode = "\033[34m"
-			friendly = "blue"
+			colourCode = "\033[33m"
+			friendly = "yellow"
 		}
 		if code >= 500 && code <= 599 {
 			colourCode = "\033[31m"
@@ -212,7 +212,7 @@ func index() http.Handler {
 		resp.headers["Server"] = "http-echo"
 
 		parseParams(req, &resp)
-		resp.body = http.StatusText(resp.code)
+		resp.body = fmt.Sprintf("%s\n", http.StatusText(resp.code))
 
 		if printRequest {
 			requestLogger(req)
@@ -334,7 +334,6 @@ func parseParams(req *http.Request, resp *response) {
 	if v == "true" {
 		hijack = true
 	}
-
 }
 
 func closeConnection(w http.ResponseWriter) {
