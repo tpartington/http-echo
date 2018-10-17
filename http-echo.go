@@ -16,36 +16,50 @@ import (
 )
 
 var (
-	delay         int
-	maxJitter     int
-	httpPort      int
-	httpAddr      string
-	listenAddr    string
+	// vars for command line options
 	showHelp      bool
 	debug         bool
 	printBody     bool
-	showColour    bool
-	timestamp     bool
 	printRequest  bool
 	printResponse bool
-	hijack        bool
-	empty         bool
-	shortBody     int
+	colour        bool
+	timestamp     bool
+
+	delay        int
+	httpPort     int
+	maxJitter    int
+	shortBody    int
+	idleTimeout  int
+	readTimeout  int
+	writeTimeout int
+
+	httpAddr string
+
+	// vars used internally
+	listenAddr string
+	hijack     bool
+	empty      bool
 )
 
 func readFlags() {
 	flag.BoolVar(&showHelp, "help", false, "show this help menu")
-	flag.StringVar(&httpAddr, "address", "127.0.0.1", "the TCP address to listen on")
-	flag.IntVar(&httpPort, "port", 8000, "the TCP port to listen on")
-	flag.IntVar(&delay, "delay", 0, "the time to wait (in milliseconds) before sending a response")
-	flag.IntVar(&maxJitter, "jitter", 0, "the maximum amount of jitter (in milliseconds) to add to the response")
 	flag.BoolVar(&debug, "debug", false, "show debug ouput")
-	flag.BoolVar(&showColour, "colour", true, "show coloured output")
 	flag.BoolVar(&printBody, "printBody", true, "print the HTTP request body")
-	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
 	flag.BoolVar(&printRequest, "printRequest", true, "print the request")
 	flag.BoolVar(&printResponse, "printResponse", true, "print the response")
+	flag.BoolVar(&colour, "colour", true, "show coloured output")
+	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
+
+	flag.IntVar(&delay, "delay", 0, "the time to wait (in milliseconds) before sending a response")
+	flag.IntVar(&httpPort, "port", 8000, "the TCP port to listen on")
+	flag.IntVar(&maxJitter, "jitter", 0, "the maximum amount of jitter (in milliseconds) to add to the response")
 	flag.IntVar(&shortBody, "shortBody", 0, "the number of bytes to print of the request body start and end, 0 will print the whole body")
+	flag.IntVar(&idleTimeout, "idleTimeout", 15000, "the idle timeout value (in milliseconds)")
+	flag.IntVar(&readTimeout, "readTimeout", 5000, "the read timeout value (in milliseconds)")
+	flag.IntVar(&writeTimeout, "writeTimeout", 10000, "the write timeout value (in milliseconds)")
+
+	flag.StringVar(&httpAddr, "address", "127.0.0.1", "the TCP address to listen on")
+
 	flag.Parse()
 
 	listenAddr = httpAddr + ":" + strconv.Itoa(httpPort)
@@ -75,9 +89,9 @@ func main() {
 	server := &http.Server{
 		Addr:         listenAddr,
 		Handler:      router,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  15 * time.Second,
+		ReadTimeout:  time.Duration(readTimeout) * time.Millisecond,
+		WriteTimeout: time.Duration(writeTimeout) * time.Millisecond,
+		IdleTimeout:  time.Duration(idleTimeout) * time.Millisecond,
 	}
 
 	fmt.Printf("Listening on: %s\n\n", listenAddr)
@@ -161,7 +175,7 @@ func colorCodes(code int) string {
 	colourCode := ""
 	friendly := "none"
 
-	if showColour {
+	if colour {
 		if code == 418 {
 			colourCode = "\033[35m"
 			friendly = "purple"
@@ -193,7 +207,7 @@ func colorCodes(code int) string {
 	}
 
 	if debug {
-		fmt.Printf("showColour=%t, code=%d, colour=%s\n", showColour, code, friendly)
+		fmt.Printf("colour=%t, code=%d, friendly=%s\n", colour, code, friendly)
 	}
 
 	return colourCode
@@ -329,7 +343,8 @@ func parseParams(req *http.Request, resp *response) {
 		empty = true
 	}
 
-	// if true hijack the
+	// if true hijack the connection replacing the outgoing data
+	// whatever was provided in the incoming body
 	v = q.Get("hijack")
 	if v == "true" {
 		hijack = true
