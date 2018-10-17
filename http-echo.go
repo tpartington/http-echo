@@ -38,7 +38,7 @@ var (
 
 	// vars used internally
 	listenAddr string
-	hijack     bool
+	replace    bool
 	empty      bool
 )
 
@@ -248,13 +248,14 @@ func colorCodes(code int) string {
 func index() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 
+		// set the defaults
 		resp := http.Response{
 			StatusCode: 200,
 			Header:     make(http.Header),
 		}
-
 		resp.Header.Add("Server", "http-echo")
 
+		// parse the query parameters
 		parseParams(req, &resp)
 
 		// set the response body to the status text
@@ -289,8 +290,8 @@ func index() http.Handler {
 			closeConnection(w)
 		}
 
-		if hijack == true {
-			hijackBody(req, w)
+		if replace == true {
+			replaceBody(req, w)
 			resp.Body = req.Body
 		}
 
@@ -397,11 +398,11 @@ func parseParams(req *http.Request, resp *http.Response) {
 		empty = true
 	}
 
-	// if true hijack the connection replacing the outgoing data
+	// if true replace the connection replacing the outgoing data
 	// whatever was provided in the incoming body
-	v = q.Get("hijack")
+	v = q.Get("replace")
 	if v == "true" {
-		hijack = true
+		replace = true
 	}
 }
 
@@ -414,7 +415,7 @@ func closeConnection(w http.ResponseWriter) {
 	conn.Close()
 }
 
-func hijackBody(req *http.Request, w http.ResponseWriter) {
+func replaceBody(req *http.Request, w http.ResponseWriter) {
 
 	// read the request body
 	body, err := ioutil.ReadAll(req.Body)
