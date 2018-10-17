@@ -166,6 +166,9 @@ func index() http.Handler {
 		// if the server was started with a proxy
 		if proxyURL != "" {
 			proxyResp, err := proxy(proxyURL, req)
+			if err != nil {
+				fmt.Printf("%v\n", err)
+			}
 			if err == nil {
 				// set our response headers with the headers from the upstream
 				resp.Header = proxyResp.Header
@@ -208,7 +211,7 @@ func index() http.Handler {
 		// restore the response body
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
-		// write the response
+		// send the response
 		w.WriteHeader(resp.StatusCode)
 		w.Write(body)
 
@@ -271,16 +274,7 @@ func parseQueryParams(req *http.Request, resp *http.Response) {
 	// the key,value pairs of custom headers to set
 	v = q.Get("headers")
 	if v != "" {
-		hs := strings.Split(v, ",")
-		if debug {
-			fmt.Printf("! headers=%v\n", hs)
-		}
-		size := len(hs)
-		i := 0
-		for i <= (size - 1) {
-			headerMap[hs[i]] = hs[i+1]
-			i = i + 2
-		}
+		parseHeaders(v)
 	}
 
 	// if close = true shutdown the server
@@ -398,7 +392,7 @@ func proxy(proxyURL string, req *http.Request) (http.Response, error) {
 
 func requestLogger(req *http.Request, proxy bool) {
 
-	// if offset is true pad the output
+	// if proxy is true offset the output
 	o := ""
 	p := ""
 	if proxy {
@@ -439,7 +433,7 @@ func requestLogger(req *http.Request, proxy bool) {
 
 func responseLogger(resp *http.Response, proxy bool) {
 
-	// if offset is true pad the output
+	// if proxy is true offset the output
 	o := ""
 	p := ""
 	if proxy {
