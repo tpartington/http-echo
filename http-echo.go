@@ -17,15 +17,16 @@ import (
 
 var (
 	// vars for command line options
-	showHelp      bool
-	debug         bool
-	quiet         bool
-	printBody     bool
-	printRequest  bool
-	printResponse bool
-	printProxy    bool
-	colour        bool
-	timestamp     bool
+	showHelp         bool
+	debug            bool
+	quiet            bool
+	printBody        bool
+	printRequest     bool
+	printResponse    bool
+	printProxy       bool
+	colour           bool
+	timestamp        bool
+	enableProxyParam bool
 
 	delay        int
 	httpPort     int
@@ -35,14 +36,18 @@ var (
 	readTimeout  int
 	writeTimeout int
 
+	code     string
+	codes    string
 	httpAddr string
 	proxyURL string
+	headers  string
 
 	// vars used internally
 	listenAddr string
 	replace    bool
 	empty      bool
-	headers    map[string]string
+	headerMap  map[string]string
+	codesArray []int
 )
 
 func readFlags() {
@@ -55,6 +60,7 @@ func readFlags() {
 	flag.BoolVar(&printProxy, "printProxy", false, "print the proxy request and response")
 	flag.BoolVar(&colour, "colour", true, "show coloured output")
 	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
+	flag.BoolVar(&enableProxyParam, "enableProxyParam", false, "enable the upstream proxy url to be set as a query parameter")
 
 	flag.IntVar(&delay, "delay", 0, "the time to wait (in milliseconds) before sending a response")
 	flag.IntVar(&httpPort, "port", 8000, "the TCP port to listen on")
@@ -64,6 +70,9 @@ func readFlags() {
 	flag.IntVar(&readTimeout, "readTimeout", 5000, "the read timeout value (in milliseconds)")
 	flag.IntVar(&writeTimeout, "writeTimeout", 10000, "the write timeout value (in milliseconds)")
 
+	flag.StringVar(&code, "code", "", "the (int) response code to send, or if set to 'r' or 'random' use a random one")
+	flag.StringVar(&codes, "codes", "", "A list of comma response codes to use when randomising responses")
+	flag.StringVar(&headers, "headers", "", "A list of comma separated key,values to add to the response headers")
 	flag.StringVar(&httpAddr, "address", "127.0.0.1", "the TCP address to listen on")
 	flag.StringVar(&proxyURL, "proxy", "", "A remote address to proxy the connection to")
 
@@ -97,6 +106,215 @@ func main() {
 
 	fmt.Printf("Listening on: %s\n\n", listenAddr)
 	log.Fatal(server.ListenAndServe())
+}
+
+func index() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+
+		headerMap = make(map[string]string)
+
+		// set the defaults
+		resp := http.Response{
+			StatusCode: 200,
+			Header:     make(http.Header),
+		}
+		resp.Header.Add("Server", "http-echo")
+		codesArray = []int{200, 500}
+		// end of defaults
+
+		if codes != "" {
+			parseCodes(codes)
+		}
+
+		if code != "" {
+			parseResponseCode(code, &resp)
+
+		}
+
+		if headers != "" {
+			parseHeaders(headers)
+		}
+
+		// parse the query parameters, this is done after parsing the command line options so that
+		// the query params will overwrite whatever was set on the command line
+		parseParams(req, &resp)
+
+		// set the response body to the status text
+		resp.Body = ioutil.NopCloser(bytes.NewBufferString(fmt.Sprintf("%s\n", http.StatusText(resp.StatusCode))))
+
+		if printRequest {
+			requestLogger(req, false)
+		}
+		addDelay(delay)
+		addJitter(maxJitter)
+
+		// if the server was started with a proxy
+		if proxyURL != "" {
+			proxyResp, err := proxy(proxyURL, req)
+			if err == nil {
+				// set our response headers with the headers from the upstream
+				resp.Header = proxyResp.Header
+
+				// set our response body with the body from the upstream
+				resp.Body = proxyResp.Body
+			}
+		}
+
+		// set the response headers
+		for k, v := range resp.Header {
+			if debug {
+				fmt.Printf("! Setting Response Header: %s=%s\n", k, v)
+			}
+			w.Header().Set(k, v[0])
+		}
+		// set the custom response headers
+		for k, v := range headerMap {
+			if debug {
+				fmt.Printf("! Setting Custom Header: %s=%s\n", k, v)
+			}
+			w.Header().Set(k, v)
+			resp.Header.Set(k, v)
+		}
+
+		if empty == true {
+			closeConnection(w)
+		}
+
+		if replace == true {
+			replaceBody(req, w)
+			resp.Body = req.Body
+		}
+
+		// read the response body
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Printf("%v\n", err)
+		}
+		// restore the response body
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+
+		// write the response
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+
+		if printResponse {
+			responseLogger(&resp, false)
+		}
+	})
+}
+
+func parseParams(req *http.Request, resp *http.Response) {
+	// parse the params
+	u, err := url.Parse(req.URL.String())
+	if err != nil {
+		fmt.Printf("error parsing url: %v\n", err)
+	}
+	q := u.Query()
+
+	// the delay to add the request
+	v := q.Get("delay")
+	if v != "" {
+		delay, err = strconv.Atoi(v)
+		if err != nil {
+			fmt.Printf("delay error: %v", err)
+		}
+	}
+
+	// the maximum amount of jitter to add to a request
+	v = q.Get("jitter")
+	if v != "" {
+		maxJitter, err = strconv.Atoi(v)
+		if err != nil {
+			fmt.Printf("jitter error: %v", err)
+		}
+	}
+
+	// the response codes to use for a random response
+	v = q.Get("codes")
+	if v != "" {
+		parseCodes(v)
+	}
+
+	// set the response code to the given int, or if random to a random value of codes
+	v = q.Get("code")
+	if v != "" {
+		parseResponseCode(v, resp)
+	}
+
+	// set the proxy url
+	v = q.Get("proxy")
+	if v != "" && enableProxyParam {
+		proxyURL = v
+	}
+
+	// set the location header
+	v = q.Get("location")
+	if v != "" {
+		headerMap["Location"] = v
+	}
+
+	// the key,value pairs of custom headers to set
+	v = q.Get("headers")
+	if v != "" {
+		hs := strings.Split(v, ",")
+		if debug {
+			fmt.Printf("! headers=%v\n", hs)
+		}
+		size := len(hs)
+		i := 0
+		for i <= (size - 1) {
+			headerMap[hs[i]] = hs[i+1]
+			i = i + 2
+		}
+	}
+
+	// if close = true shutdown the server
+	v = q.Get("empty")
+	if v == "true" {
+		empty = true
+	}
+
+	// if true replace the response body with
+	// whatever was provided in the request body
+	v = q.Get("replace")
+	if v == "true" {
+		replace = true
+	}
+}
+
+func parseCodes(codes string) {
+	codesArray = []int{}
+	cs := strings.Split(codes, ",")
+	for _, x := range cs {
+		y, err := strconv.Atoi(x)
+		if err != nil {
+			panic(err)
+		}
+		codesArray = append(codesArray, y)
+	}
+}
+
+func parseResponseCode(code string, resp *http.Response) {
+	if code == "random" || code == "r" {
+		resp = randomiseResponseCode(resp, codesArray)
+	}
+	v, err := strconv.Atoi(code)
+	if err == nil {
+		resp.StatusCode = v
+	}
+}
+
+func parseHeaders(headers string) {
+	hs := strings.Split(headers, ",")
+	if debug {
+		fmt.Printf("! headers=%v\n", hs)
+	}
+	size := len(hs)
+	i := 0
+	for i <= (size - 1) {
+		headerMap[hs[i]] = hs[i+1]
+		i = i + 2
+	}
 }
 
 func addDelay(delay int) {
@@ -272,174 +490,6 @@ func colorCodes(code int) string {
 	}
 
 	return colourCode
-}
-
-func index() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-
-		headers = make(map[string]string)
-		// set the defaults
-		resp := http.Response{
-			StatusCode: 200,
-			Header:     make(http.Header),
-		}
-		resp.Header.Add("Server", "http-echo")
-
-		// parse the query parameters
-		parseParams(req, &resp)
-
-		// set the response body to the status text
-		resp.Body = ioutil.NopCloser(bytes.NewBufferString(fmt.Sprintf("%s\n", http.StatusText(resp.StatusCode))))
-
-		if printRequest {
-			requestLogger(req, false)
-		}
-		addDelay(delay)
-		addJitter(maxJitter)
-
-		if proxyURL != "" {
-			proxyResp, err := proxy(proxyURL, req)
-			if err == nil {
-				// set our response headers with the headers from the upstream
-				resp.Header = proxyResp.Header
-
-				// set our response body with the body from the upstream
-				resp.Body = proxyResp.Body
-			}
-		}
-
-		// set the response headers
-		for k, v := range resp.Header {
-			if debug {
-				fmt.Printf("! Setting Response Header: %s=%s\n", k, v)
-			}
-			w.Header().Set(k, v[0])
-		}
-		// set the custom response headers
-		for k, v := range headers {
-			if debug {
-				fmt.Printf("! Setting Custom Header: %s=%s\n", k, v)
-			}
-			w.Header().Set(k, v)
-			resp.Header.Set(k, v)
-		}
-
-		if empty == true {
-			closeConnection(w)
-		}
-
-		if replace == true {
-			replaceBody(req, w)
-			resp.Body = req.Body
-		}
-
-		// read the response body
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Printf("%v\n", err)
-		}
-		// restore the response body
-		resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
-
-		// write the response
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-
-		if printResponse {
-			responseLogger(&resp, false)
-		}
-	})
-}
-
-func parseParams(req *http.Request, resp *http.Response) {
-
-	// default response codes to use if random is set
-	codes := []int{200, 500}
-
-	// parse the params
-	u, err := url.Parse(req.URL.String())
-	if err != nil {
-		fmt.Printf("error parsing url: %v\n", err)
-	}
-	q := u.Query()
-
-	// the delay to add the request
-	v := q.Get("delay")
-	if v != "" {
-		delay, err = strconv.Atoi(v)
-		if err != nil {
-			fmt.Printf("delay error: %v", err)
-		}
-	}
-
-	// the maximum amount of jitter to add to a request
-	v = q.Get("jitter")
-	if v != "" {
-		maxJitter, err = strconv.Atoi(v)
-		if err != nil {
-			fmt.Printf("jitter error: %v", err)
-		}
-	}
-
-	// the response codes to use for a random response
-	v = q.Get("codes")
-	if v != "" {
-		codes = []int{}
-		cs := strings.Split(v, ",")
-		for _, x := range cs {
-			y, err := strconv.Atoi(x)
-			if err != nil {
-				panic(err)
-			}
-			codes = append(codes, y)
-		}
-	}
-
-	// set the response code to the given int, or if random to a random value of codes
-	v = q.Get("code")
-	if v != "" {
-		if v == "random" || v == "r" {
-			resp = randomiseResponseCode(resp, codes)
-		}
-		v, err := strconv.Atoi(v)
-		if err == nil {
-			resp.StatusCode = v
-		}
-	}
-
-	// set the location header
-	v = q.Get("location")
-	if v != "" {
-		headers["Location"] = v
-	}
-
-	// the key,value pairs of custom headers to set
-	v = q.Get("headers")
-	if v != "" {
-		hs := strings.Split(v, ",")
-		if debug {
-			fmt.Printf("! headers=%v\n", hs)
-		}
-		size := len(hs)
-		i := 0
-		for i <= (size - 1) {
-			headers[hs[i]] = hs[i+1]
-			i = i + 2
-		}
-	}
-
-	// if close = true shutdown the server
-	v = q.Get("empty")
-	if v == "true" {
-		empty = true
-	}
-
-	// if true replace the response body with
-	// whatever was provided in the request body
-	v = q.Get("replace")
-	if v == "true" {
-		replace = true
-	}
 }
 
 func closeConnection(w http.ResponseWriter) {
