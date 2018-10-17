@@ -19,9 +19,11 @@ var (
 	// vars for command line options
 	showHelp      bool
 	debug         bool
+	quiet         bool
 	printBody     bool
 	printRequest  bool
 	printResponse bool
+	printProxy    bool
 	colour        bool
 	timestamp     bool
 
@@ -40,14 +42,17 @@ var (
 	listenAddr string
 	replace    bool
 	empty      bool
+	headers    map[string]string
 )
 
 func readFlags() {
 	flag.BoolVar(&showHelp, "help", false, "show this help menu")
 	flag.BoolVar(&debug, "debug", false, "show debug ouput")
+	flag.BoolVar(&quiet, "quiet", false, "hide all log output")
 	flag.BoolVar(&printBody, "printBody", true, "print the HTTP request body")
 	flag.BoolVar(&printRequest, "printRequest", true, "print the request")
 	flag.BoolVar(&printResponse, "printResponse", true, "print the response")
+	flag.BoolVar(&printProxy, "printProxy", false, "print the proxy request and response")
 	flag.BoolVar(&colour, "colour", true, "show coloured output")
 	flag.BoolVar(&timestamp, "timestamp", true, "show the request/response timestamp")
 
@@ -75,7 +80,7 @@ func readFlags() {
 
 func main() {
 	readFlags()
-	if !debug {
+	if quiet {
 		log.SetFlags(0)
 		log.SetOutput(ioutil.Discard)
 	}
@@ -109,7 +114,7 @@ func addJitter(maxJitter int) {
 		random := rand.New(seed).Float64() * float64(maxJitter)
 		jitter := time.Duration(random) * time.Millisecond
 		if debug {
-			fmt.Printf("max-jitter=%vms, jitter=%vms\n", maxJitter, jitter)
+			fmt.Printf("! max-jitter=%vms, jitter=%vms\n", maxJitter, jitter)
 		}
 		time.Sleep(jitter)
 	}
@@ -133,16 +138,30 @@ func proxy(proxyURL string, req *http.Request) (http.Response, error) {
 	}
 	client := &http.Client{Transport: tr}
 
+	nr.Header = req.Header
+
+	if printProxy {
+		requestLogger(nr, true)
+	}
 	resp, err := client.Do(nr)
 	if err != nil {
 		fmt.Printf("%v\n", err)
 	}
 
+	if printProxy {
+		responseLogger(resp, true)
+	}
 	return *resp, err
 
 }
 
-func requestLogger(req *http.Request) {
+func requestLogger(req *http.Request, offset bool) {
+
+	// if offset is true pad the output
+	o := ""
+	if offset {
+		o = "   "
+	}
 
 	// read the request body
 	body, err := ioutil.ReadAll(req.Body)
@@ -153,28 +172,34 @@ func requestLogger(req *http.Request) {
 	req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	if timestamp {
-		fmt.Printf("\n---------- Request: %s ----------\n", time.Now().Local())
+		fmt.Printf("\n%s---------- Request: %s ----------\n", o, time.Now().Local())
 	}
-	fmt.Printf("> %s %s %s\n", req.Method, req.RequestURI, req.Proto)
+	fmt.Printf("%s> %s %s %s\n", o, req.Method, req.RequestURI, req.Proto)
 	for k, v := range req.Header {
-		fmt.Printf("> %s: %s\n", k, v)
+		fmt.Printf("%s> %s: %s\n", o, k, v)
 	}
 	if string(body) != "" {
 		if printBody {
 			if shortBody < 1 || len(body) <= (shortBody*2) {
-				fmt.Printf("%s\n", body)
+				fmt.Printf("%s%s\n", o, body)
 			} else {
 				bodyStart := body[0:shortBody]
 				bodyEnd := body[len(body)-shortBody:]
-				fmt.Printf("%s\n", bodyStart)
-				fmt.Printf("...\n")
-				fmt.Printf("%s\n", bodyEnd)
+				fmt.Printf("%s%s\n", o, bodyStart)
+				fmt.Printf("%s...\n", o)
+				fmt.Printf("%s%s\n", o, bodyEnd)
 			}
 		}
 	}
 }
 
-func responseLogger(resp *http.Response) {
+func responseLogger(resp *http.Response, offset bool) {
+
+	// if offset is true pad the output
+	o := ""
+	if offset {
+		o = "   "
+	}
 
 	// read the response body
 	body, err := ioutil.ReadAll(resp.Body)
@@ -185,16 +210,16 @@ func responseLogger(resp *http.Response) {
 	resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	if timestamp {
-		fmt.Printf("\n---------- Response: %s ----------\n", time.Now().Local())
+		fmt.Printf("\n%s---------- Response: %s ----------\n", o, time.Now().Local())
 	}
 	print(colorCodes(resp.StatusCode))
-	fmt.Printf("< %d\n", resp.StatusCode)
+	fmt.Printf("%s< %d\n", o, resp.StatusCode)
 	for k, v := range resp.Header {
-		fmt.Printf("< %s: %s\n", k, v)
+		fmt.Printf("%s< %s: %s\n", o, k, v)
 	}
 	if string(body) != "" {
 		if printBody {
-			fmt.Printf("%s\n", body)
+			fmt.Printf("%s%s\n", o, body)
 		}
 	}
 
@@ -239,7 +264,7 @@ func colorCodes(code int) string {
 	}
 
 	if debug {
-		fmt.Printf("colour=%t, code=%d, friendly=%s\n", colour, code, friendly)
+		fmt.Printf("! colour=%t, code=%d, friendly=%s\n", colour, code, friendly)
 	}
 
 	return colourCode
@@ -248,6 +273,7 @@ func colorCodes(code int) string {
 func index() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 
+		headers = make(map[string]string)
 		// set the defaults
 		resp := http.Response{
 			StatusCode: 200,
@@ -262,7 +288,7 @@ func index() http.Handler {
 		resp.Body = ioutil.NopCloser(bytes.NewBufferString(fmt.Sprintf("%s\n", http.StatusText(resp.StatusCode))))
 
 		if printRequest {
-			requestLogger(req)
+			requestLogger(req, false)
 		}
 		addDelay(delay)
 		addJitter(maxJitter)
@@ -278,12 +304,20 @@ func index() http.Handler {
 			}
 		}
 
-		// set any custom headers
+		// set the response headers
 		for k, v := range resp.Header {
 			if debug {
-				fmt.Printf("Setting Header: %s=%s\n", k, v)
+				fmt.Printf("! Setting Response Header: %s=%s\n", k, v)
 			}
 			w.Header().Set(k, v[0])
+		}
+		// set the custom response headers
+		for k, v := range headers {
+			if debug {
+				fmt.Printf("! Setting Custom Header: %s=%s\n", k, v)
+			}
+			w.Header().Set(k, v)
+			resp.Header.Set(k, v)
 		}
 
 		if empty == true {
@@ -308,7 +342,7 @@ func index() http.Handler {
 		w.Write(body)
 
 		if printResponse {
-			responseLogger(&resp)
+			responseLogger(&resp, false)
 		}
 	})
 }
@@ -372,8 +406,7 @@ func parseParams(req *http.Request, resp *http.Response) {
 	// set the location header
 	v = q.Get("location")
 	if v != "" {
-		//	resp.headers["Location"] = v
-		resp.Header.Set("Location", v)
+		headers["Location"] = v
 	}
 
 	// the key,value pairs of custom headers to set
@@ -381,13 +414,12 @@ func parseParams(req *http.Request, resp *http.Response) {
 	if v != "" {
 		hs := strings.Split(v, ",")
 		if debug {
-			fmt.Printf("headers=%v\n", hs)
+			fmt.Printf("! headers=%v\n", hs)
 		}
 		size := len(hs)
 		i := 0
 		for i <= (size - 1) {
-			//resp.headers[hs[i]] = hs[i+1]
-			resp.Header.Set(hs[i], hs[i+1])
+			headers[hs[i]] = hs[i+1]
 			i = i + 2
 		}
 	}
@@ -398,8 +430,8 @@ func parseParams(req *http.Request, resp *http.Response) {
 		empty = true
 	}
 
-	// if true replace the connection replacing the outgoing data
-	// whatever was provided in the incoming body
+	// if true replace the response body with
+	// whatever was provided in the request body
 	v = q.Get("replace")
 	if v == "true" {
 		replace = true
@@ -435,7 +467,7 @@ func replaceBody(req *http.Request, w http.ResponseWriter) {
 	if len(bs) > 0 {
 		for _, b := range bs {
 			if debug {
-				fmt.Printf("%s\n", b)
+				fmt.Printf("! %s\n", b)
 			}
 			buf.WriteString(b)
 			buf.WriteString("\n")
@@ -451,7 +483,7 @@ func randomiseResponseCode(resp *http.Response, codes []int) *http.Response {
 	resp.StatusCode = codes[i]
 
 	if debug {
-		fmt.Printf("len=%d, rn=%d, i=%d, code=%d", len(codes), rn, i, resp.StatusCode)
+		fmt.Printf("! len=%d, rn=%d, i=%d, code=%d", len(codes), rn, i, resp.StatusCode)
 	}
 
 	return resp
