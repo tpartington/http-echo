@@ -44,7 +44,7 @@ Usage of http-echo:
     	hide all log output
   -readTimeout int
     	the read timeout value (in milliseconds) (default 5000)
-  -shortBody int
+  -bodySize int
     	the number of bytes to print of the request body start and end, 0 will print the whole body
   -timestamp
     	show the request/response timestamp (default true)

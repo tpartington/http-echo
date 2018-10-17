@@ -31,7 +31,7 @@ var (
 	delay        int
 	httpPort     int
 	maxJitter    int
-	shortBody    int
+	bodySize     int
 	idleTimeout  int
 	readTimeout  int
 	writeTimeout int
@@ -69,7 +69,7 @@ func readFlags() {
 	flag.IntVar(&delay, "delay", 0, "the time to wait (in milliseconds) before sending a response")
 	flag.IntVar(&httpPort, "port", 8000, "the TCP port to listen on")
 	flag.IntVar(&maxJitter, "jitter", 0, "the maximum amount of jitter (in milliseconds) to add to the response")
-	flag.IntVar(&shortBody, "shortBody", 0, "the number of bytes to print of the request body start and end, 0 will print the whole body")
+	flag.IntVar(&bodySize, "bodySize", 0, "the number of bytes to print of the request body start and end, 0 will print the whole body")
 	flag.IntVar(&idleTimeout, "idleTimeout", 15000, "the idle timeout value (in milliseconds)")
 	flag.IntVar(&readTimeout, "readTimeout", 5000, "the read timeout value (in milliseconds)")
 	flag.IntVar(&writeTimeout, "writeTimeout", 10000, "the write timeout value (in milliseconds)")
@@ -423,12 +423,12 @@ func requestLogger(req *http.Request, proxy bool) {
 	}
 	if string(body) != "" {
 		if printBody {
-			if shortBody < 1 || len(body) <= (shortBody*2) {
+			if bodySize < 1 || len(body) <= (bodySize*2) {
 				s := strings.Replace(string(body), "\\n", "\n", -1)
 				fmt.Printf("%s%s\n", o, s)
 			} else {
-				bodyStart := body[0:shortBody]
-				bodyEnd := body[len(body)-shortBody:]
+				bodyStart := body[0:bodySize]
+				bodyEnd := body[len(body)-bodySize:]
 				fmt.Printf("%s%s\n", o, bodyStart)
 				fmt.Printf("%s...\n", o)
 				fmt.Printf("%s%s\n", o, bodyEnd)
