@@ -36,6 +36,7 @@ var (
 	readTimeout  int
 	writeTimeout int
 
+	body     string
 	code     string
 	codes    string
 	httpAddr string
@@ -70,6 +71,7 @@ func readFlags() {
 	flag.IntVar(&readTimeout, "readTimeout", 5000, "the read timeout value (in milliseconds)")
 	flag.IntVar(&writeTimeout, "writeTimeout", 10000, "the write timeout value (in milliseconds)")
 
+	flag.StringVar(&body, "body", "", "use the contents of this file as the request body")
 	flag.StringVar(&code, "code", "", "the (int) response code to send, or if set to 'r' or 'random' use a random one")
 	flag.StringVar(&codes, "codes", "", "A list of comma response codes to use when randomising responses")
 	flag.StringVar(&headers, "headers", "", "A list of comma separated key,values to add to the response headers")
@@ -141,6 +143,10 @@ func index() http.Handler {
 
 		// set the response body to the status text
 		resp.Body = ioutil.NopCloser(bytes.NewBufferString(fmt.Sprintf("%s\n", http.StatusText(resp.StatusCode))))
+
+		if body != "" {
+			resp.Body = ioutil.NopCloser(bytes.NewReader(readBodyFromFile(body)))
+		}
 
 		if printRequest {
 			requestLogger(req, false)
@@ -317,6 +323,14 @@ func parseHeaders(headers string) {
 	}
 }
 
+func readBodyFromFile(file string) []byte {
+	body, err := ioutil.ReadFile(file)
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	return body
+}
+
 func addDelay(delay int) {
 	if delay != 0 {
 		if debug {
@@ -401,7 +415,8 @@ func requestLogger(req *http.Request, proxy bool) {
 	if string(body) != "" {
 		if printBody {
 			if shortBody < 1 || len(body) <= (shortBody*2) {
-				fmt.Printf("%s%s\n", o, body)
+				s := strings.Replace(string(body), "\\n", "\n", -1)
+				fmt.Printf("%s%s\n", o, s)
 			} else {
 				bodyStart := body[0:shortBody]
 				bodyEnd := body[len(body)-shortBody:]
@@ -441,7 +456,8 @@ func responseLogger(resp *http.Response, proxy bool) {
 	}
 	if string(body) != "" {
 		if printBody {
-			fmt.Printf("%s%s\n", o, body)
+			s := strings.Replace(string(body), "\\n", "\n", -1)
+			fmt.Printf("%s%s\n", o, s)
 		}
 	}
 

@@ -120,3 +120,15 @@ Run the http-echo server but proxy requests to http://checkip.amazonaws.com, pri
 ```shell
 http-echo -proxy=https://checkip.amazonaws.com -printProxy=true -code=500 -headers=Server,Apache
 ```
+
+Use curl to connect, replacing the response body with the example body
+
+```shell
+curl -v 'http://localhost:8000?replace=true' -d @example.body
+```
+
+Run the http-echo server, setting the response body to the contents of the example.body file
+
+```shell
+http-echo -body=example.body
+```
