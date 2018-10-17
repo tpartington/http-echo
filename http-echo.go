@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -143,20 +142,15 @@ func proxy(proxyURL string, req *http.Request) (http.Response, error) {
 
 }
 
-func tee(r io.Reader) []byte {
-	var b bytes.Buffer
-	tee := io.TeeReader(r, &b)
-	bytes, err := ioutil.ReadAll(tee)
+func requestLogger(req *http.Request) {
+
+	// read the request body
+	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		fmt.Printf("%v\n", err)
 	}
-
-	return bytes
-}
-
-func requestLogger(req *http.Request) {
-
-	body := tee(req.Body)
+	// restore the request body
+	req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	if timestamp {
 		fmt.Printf("\n---------- Request: %s ----------\n", time.Now().Local())
@@ -180,9 +174,15 @@ func requestLogger(req *http.Request) {
 	}
 }
 
-func responseLogger(resp http.Response) {
+func responseLogger(resp *http.Response) {
 
-	body := tee(resp.Body)
+	// read the response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	// restore the response body
+	resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	if timestamp {
 		fmt.Printf("\n---------- Response: %s ----------\n", time.Now().Local())
@@ -256,6 +256,8 @@ func index() http.Handler {
 		resp.Header.Add("Server", "http-echo")
 
 		parseParams(req, &resp)
+
+		// set the response body to the status text
 		resp.Body = ioutil.NopCloser(bytes.NewBufferString(fmt.Sprintf("%s\n", http.StatusText(resp.StatusCode))))
 
 		if printRequest {
@@ -292,16 +294,21 @@ func index() http.Handler {
 			resp.Body = req.Body
 		}
 
-		if printResponse {
-			responseLogger(resp)
+		// read the response body
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Printf("%v\n", err)
 		}
-
-		// read the response body into a string
-		body := tee(resp.Body)
+		// restore the response body
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 		// write the response
 		w.WriteHeader(resp.StatusCode)
-		w.Write([]byte(body))
+		w.Write(body)
+
+		if printResponse {
+			responseLogger(&resp)
+		}
 	})
 }
 
@@ -408,7 +415,14 @@ func closeConnection(w http.ResponseWriter) {
 }
 
 func hijackBody(req *http.Request, w http.ResponseWriter) {
-	body := tee(req.Body)
+
+	// read the request body
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	// restore the request body
+	req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	hj, _ := w.(http.Hijacker)
 	conn, buf, err := hj.Hijack()
