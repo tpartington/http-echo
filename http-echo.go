@@ -43,6 +43,9 @@ var (
 	proxyURL string
 	headers  string
 
+	cert string
+	key  string
+
 	// vars used internally
 	listenAddr string
 	replace    bool
@@ -77,6 +80,8 @@ func readFlags() {
 	flag.StringVar(&headers, "headers", "", "A list of comma separated key,values to add to the response headers")
 	flag.StringVar(&httpAddr, "address", "127.0.0.1", "the TCP address to listen on")
 	flag.StringVar(&proxyURL, "proxy", "", "A remote address to proxy the connection to")
+	flag.StringVar(&cert, "cert", "", "The TLS server certificate to use")
+	flag.StringVar(&key, "key", "", "The TLS server key to use")
 
 	flag.Parse()
 
@@ -107,7 +112,11 @@ func main() {
 	}
 
 	fmt.Printf("Listening on: %s\n\n", listenAddr)
-	log.Fatal(server.ListenAndServe())
+	if cert == "" || key == "" {
+		log.Fatal(server.ListenAndServe())
+	} else {
+		log.Fatal(server.ListenAndServeTLS(cert, key))
+	}
 }
 
 func index() http.Handler {
@@ -139,7 +148,7 @@ func index() http.Handler {
 
 		// parse the query parameters, this is done after parsing the command line options so that
 		// the query params will overwrite whatever was set on the command line
-		parseParams(req, &resp)
+		parseQueryParams(req, &resp)
 
 		// set the response body to the status text
 		resp.Body = ioutil.NopCloser(bytes.NewBufferString(fmt.Sprintf("%s\n", http.StatusText(resp.StatusCode))))
@@ -209,7 +218,7 @@ func index() http.Handler {
 	})
 }
 
-func parseParams(req *http.Request, resp *http.Response) {
+func parseQueryParams(req *http.Request, resp *http.Response) {
 	// parse the params
 	u, err := url.Parse(req.URL.String())
 	if err != nil {

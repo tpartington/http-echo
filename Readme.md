@@ -132,3 +132,9 @@ Run the http-echo server, setting the response body to the contents of the examp
 ```shell
 http-echo -body=example.body
 ```
+
+To listen on HTTPS first generate a key and certificate, the start http-echo with the -cert and -key flags. If either of these flags are missing, the server will start in HTTP mode.
+
+```shell
+http-echo -cert=server.crt -key=server.key
+```
