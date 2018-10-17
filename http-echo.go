@@ -155,12 +155,14 @@ func proxy(proxyURL string, req *http.Request) (http.Response, error) {
 
 }
 
-func requestLogger(req *http.Request, offset bool) {
+func requestLogger(req *http.Request, proxy bool) {
 
 	// if offset is true pad the output
 	o := ""
-	if offset {
+	p := ""
+	if proxy {
 		o = "   "
+		p = "Proxy "
 	}
 
 	// read the request body
@@ -172,7 +174,7 @@ func requestLogger(req *http.Request, offset bool) {
 	req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	if timestamp {
-		fmt.Printf("\n%s---------- Request: %s ----------\n", o, time.Now().Local())
+		fmt.Printf("\n%s---------- %sRequest: %s ----------\n", o, p, time.Now().Local())
 	}
 	fmt.Printf("%s> %s %s %s\n", o, req.Method, req.RequestURI, req.Proto)
 	for k, v := range req.Header {
@@ -193,12 +195,14 @@ func requestLogger(req *http.Request, offset bool) {
 	}
 }
 
-func responseLogger(resp *http.Response, offset bool) {
+func responseLogger(resp *http.Response, proxy bool) {
 
 	// if offset is true pad the output
 	o := ""
-	if offset {
+	p := ""
+	if proxy {
 		o = "   "
+		p = "Proxy "
 	}
 
 	// read the response body
@@ -210,7 +214,7 @@ func responseLogger(resp *http.Response, offset bool) {
 	resp.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 
 	if timestamp {
-		fmt.Printf("\n%s---------- Response: %s ----------\n", o, time.Now().Local())
+		fmt.Printf("\n%s---------- %sResponse: %s ----------\n", o, p, time.Now().Local())
 	}
 	print(colorCodes(resp.StatusCode))
 	fmt.Printf("%s< %d\n", o, resp.StatusCode)
